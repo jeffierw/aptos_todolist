@@ -1,7 +1,10 @@
 module todolist_addr::todolist {
+    use std::bcs;
     use std::string::String;
     use std::signer;
+    use std::vector;
     use aptos_std::string_utils;
+    use aptos_framework::object;
 
     /// Todo list does not exist
     const E_TODO_LIST_DOSE_NOT_EXIST: u64 = 1;
@@ -36,7 +39,7 @@ module todolist_addr::todolist {
             };
             move_to(sender, counter);
             0
-        }
+        };
 
         let obj_holds_todo_list = object::create_named_object(
             sender,
@@ -53,7 +56,7 @@ module todolist_addr::todolist {
     }
 
     public entry fun create_todo(sender: &signer, todo_list_idx: u64, content: String) acquires TodoList {
-        let sender_address = signer::address_od(sender);
+        let sender_address = signer::address_of(sender);
         let todo_list_obj_addr = object::create_object_address(
             &sender_address,
             construct_todo_list_object_seed(todo_list_idx)
@@ -145,4 +148,107 @@ module todolist_addr::todolist {
     }
 
     // ==================== Unit Tests ====================
+
+    #[test_only]
+    use std::string;
+    #[test_only]
+    use aptos_framework::account;
+    #[test_only]
+    use aptos_std::debug;
+
+    #[test(admin = @0x100)]
+    public entry fun test_end_to_end(admin: signer) acquires TodoList, UserTodoListCounter {
+        let admin_addr = signer::address_of(&admin);
+        let todo_list_idx = get_todo_list_counter(admin_addr);
+        assert!(todo_list_idx == 0, 1);
+        account::create_account_for_test(admin_addr);
+        assert!(!has_todo_list(admin_addr, todo_list_idx), 2);
+        create_todo_list(&admin);
+        assert!(get_todo_list_counter(admin_addr) == 1, 3);
+        assert!(has_todo_list(admin_addr, todo_list_idx), 4);
+
+        create_todo(&admin, todo_list_idx, string::utf8(b"New Todo"));
+        let (todo_list_owner, todo_list_length) = get_todo_list(admin_addr, todo_list_idx);
+        debug::print(&string_utils::format1(&b"todo_list_owner: {}", todo_list_owner));
+        debug::print(&string_utils::format1(&b"todo_list_length: {}", todo_list_length));
+        assert!(todo_list_owner == admin_addr, 5);
+        assert!(todo_list_length == 1, 6);
+
+        let (todo_content, todo_completed) = get_todo(admin_addr, todo_list_idx, 0);
+        debug::print(&string_utils::format1(&b"todo_content: {}", todo_content));
+        debug::print(&string_utils::format1(&b"todo_completed: {}", todo_completed));
+        assert!(!todo_completed, 7);
+        assert!(todo_content == string::utf8(b"New Todo"), 8);
+
+        complete_todo(&admin, todo_list_idx, 0);
+        let (_todo_content, todo_completed) = get_todo(admin_addr, todo_list_idx, 0);
+        debug::print(&string_utils::format1(&b"todo_completed: {}", todo_completed));
+        assert!(todo_completed, 9);
+    }
+
+    #[test(admin = @0x100)]
+    public entry fun test_end_to_end_2_todo_lists(admin: signer) acquires  TodoList, UserTodoListCounter {
+        let admin_addr = signer::address_of(&admin);
+        create_todo_list(&admin);
+        let todo_list_1_idx = get_todo_list_counter(admin_addr) - 1;
+        create_todo_list(&admin);
+        let todo_list_2_idx = get_todo_list_counter(admin_addr) - 1;
+
+        create_todo(&admin, todo_list_1_idx, string::utf8(b"New Todo"));
+        let (todo_list_owner, todo_list_length) = get_todo_list(admin_addr, todo_list_1_idx);
+        assert!(todo_list_owner == admin_addr, 1);
+        assert!(todo_list_length == 1, 2);
+
+        let (todo_content, todo_completed) = get_todo(admin_addr, todo_list_1_idx, 0);
+        assert!(!todo_completed, 3);
+        assert!(todo_content == string::utf8(b"New Todo"), 4);
+
+        complete_todo(&admin, todo_list_1_idx, 0);
+        let (_todo_content, todo_completed) = get_todo(admin_addr, todo_list_1_idx, 0);
+        assert!(todo_completed, 5);
+
+        create_todo(&admin, todo_list_2_idx, string::utf8(b"New Todo"));
+        let (todo_list_owner, todo_list_length) = get_todo_list(admin_addr, todo_list_2_idx);
+        assert!(todo_list_owner == admin_addr, 6);
+        assert!(todo_list_length == 1, 7);
+
+        let (todo_content, todo_completed) = get_todo(admin_addr, todo_list_2_idx, 0);
+        assert!(!todo_completed, 8);
+        assert!(todo_content == string::utf8(b"New Todo"), 9);
+
+        complete_todo(&admin, todo_list_2_idx, 0);
+        let (_todo_content, todo_completed) = get_todo(admin_addr, todo_list_2_idx, 0);
+        assert!(todo_completed, 10);
+    }
+
+    #[test(admin = @0x100)]
+    #[expected_failure(abort_code = E_TODO_LIST_DOSE_NOT_EXIST, location = Self)]
+    public entry fun test_todo_list_does_not_exist(admin: signer) acquires TodoList, UserTodoListCounter {
+        let admin_addr = signer::address_of(&admin);
+        account::create_account_for_test(admin_addr);
+        let todo_list_idx = get_todo_list_counter(admin_addr);
+        create_todo(&admin, todo_list_idx, string::utf8(b"New Todo"));
+    }
+
+    #[test(admin = @0x100)]
+    #[expected_failure(abort_code = E_TODO_DOSE_NOT_EXIST, location = Self)]
+    public entry fun test_todo_does_not_exist(admin: signer) acquires TodoList, UserTodoListCounter {
+        let admin_addr = signer::address_of(&admin);
+        account::create_account_for_test(admin_addr);
+        let todo_list_idx = get_todo_list_counter(admin_addr);
+        create_todo_list(&admin);
+        complete_todo(&admin, todo_list_idx, 1);
+    }
+
+    #[test(admin = @0x100)]
+    #[expected_failure(abort_code = E_TODO_ALREADY_COMPLETED, location = Self)]
+    public entry fun test_todo_already_completed(admin: signer) acquires TodoList, UserTodoListCounter {
+        let admin_addr = signer::address_of(&admin);
+        account::create_account_for_test(admin_addr);
+        let todo_list_idx = get_todo_list_counter(admin_addr);
+        create_todo_list(&admin);
+        create_todo(&admin, todo_list_idx, string::utf8(b"New Todo"));
+        complete_todo(&admin, todo_list_idx, 0);
+        complete_todo(&admin, todo_list_idx, 0);
+    }
 }

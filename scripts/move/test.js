@@ -8,7 +8,7 @@ async function test() {
   await move.test({
     packageDirectoryPath: "contract",
     namedAddresses: {
-      message_board_addr: "0x100",
+      todolist_addr: "0xc0a22c5608bf0f2ee21fc1732fe8ce0612182ce80bc525aea3e8d3d8548e8ace",
     },
   });
 }
